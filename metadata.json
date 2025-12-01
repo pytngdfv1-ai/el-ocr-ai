@@ -1,0 +1,7 @@
+{
+  "name": "EL OCR",
+  "description": "Una aplicación web para escanear, importar y organizar documentos usando IA para extraer información clave, haciéndolos fácilmente buscables.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
