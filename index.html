@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EL OCR - Biblioteca de Documentos Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>">
+
+<style>
+@media print {
+  /* Hide everything in the body by default using visibility */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Make the modal container and all its contents visible again */
+  .printable-area-container, .printable-area-container * {
+    visibility: visible;
+  }
+  
+  /* Explicitly hide elements marked as no-print */
+  .no-print { 
+    display: none !important;
+  }
+
+  /* Reset the container to fill the page, removing fixed positioning and centering */
+  .printable-area-container {
+    position: static !important;
+    padding: 0 !important;
+  }
+  .printable-area-container > div {
+     display: block !important;
+     min-height: 0 !important;
+     padding: 0 !important;
+  }
+  
+  /* Reset the modal content area */
+  .printable-area {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    transform: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+  
+  /* Ensure the scrollable OCR text area expands to show all its content */
+  .printable-content .h-\[28rem\] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  @page {
+    margin: 1in;
+  }
+}
+</style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/el-ocr-ai/assets/index-BuUo-udd.js"></script>
+</head>
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-200 antialiased">
+    <div id="root"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="config.js"></script>
+  </body>
+</html>
