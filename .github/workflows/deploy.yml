@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # Asegúrate de que tu rama principal se llame main
+    branches: [ main ] # Confirma que tu rama principal se llame main
 
 permissions:
   contents: write
@@ -11,23 +11,22 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout 📥
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node 🟢
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22 # Usamos la versión más reciente y estable
 
-      - name: Install dependencies
+      - name: Install dependencies 📦
         run: npm install
 
-      - name: Build
+      - name: Build 🏗️
         run: npm run build
 
-      - name: Deploy
+      - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: dist # La carpeta que crea Vite
-          branch: gh-pages # La rama donde se subirá la web
+          folder: dist # La carpeta que genera Vite al compilar
+          branch: gh-pages # La rama donde se publicará tu web
