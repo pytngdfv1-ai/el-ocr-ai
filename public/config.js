@@ -7,4 +7,4 @@
 //
 // Ejemplo: window.GEMINI_API_KEY = "AbCdEfGhIjKlMnOpQrStUvWxYz123456789";
 
-window.GEMINI_API_KEY = "TU_API_KEY_AQUI";
+window.GEMINI_API_KEY = "AIzaSyDlZXATKFwg2JyCvYUHfRW8w3E5re6-L-c";
