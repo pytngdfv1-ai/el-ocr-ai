@@ -6,10 +6,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   
   return {
-    // Esta línea es la clave para GitHub Pages 🔑
+    // Crucial para GitHub Pages 🔑
     base: '/el-ocr-ai/', 
     
-    // Indicamos explícitamente dónde están los archivos estáticos 📂
+    // Asegura que Vite use la carpeta public 📂
     publicDir: 'public', 
     
     server: {
@@ -29,5 +29,5 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       }
     }
-  };
+  }; // <--- Estas llaves son vitales para cerrar el código
 });
