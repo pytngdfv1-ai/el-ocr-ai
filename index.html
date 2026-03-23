@@ -23,22 +23,15 @@
 </script>
 <style>
 @media print {
-  /* Hide everything in the body by default using visibility */
   body * {
     visibility: hidden;
   }
-
-  /* Make the modal container and all its contents visible again */
   .printable-area-container, .printable-area-container * {
     visibility: visible;
   }
-  
-  /* Explicitly hide elements marked as no-print */
   .no-print { 
     display: none !important;
   }
-
-  /* Reset the container to fill the page, removing fixed positioning and centering */
   .printable-area-container {
     position: static !important;
     padding: 0 !important;
@@ -48,8 +41,6 @@
      min-height: 0 !important;
      padding: 0 !important;
   }
-  
-  /* Reset the modal content area */
   .printable-area {
     width: 100% !important;
     max-width: none !important;
@@ -61,14 +52,11 @@
     border-radius: 0 !important;
     overflow: visible !important;
   }
-  
-  /* Ensure the scrollable OCR text area expands to show all its content */
   .printable-content .h-\[28rem\] {
     height: auto !important;
     max-height: none !important;
     overflow-y: visible !important;
   }
-
   @page {
     margin: 1in;
   }
@@ -79,6 +67,6 @@
     <div id="root"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="config.js"></script>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="index.tsx"></script>
   </body>
 </html>
