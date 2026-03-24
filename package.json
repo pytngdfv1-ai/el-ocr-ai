@@ -1,13 +1,14 @@
 {
-  "name": "el-ocr",
+  "name": "el-ocr-ai",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "homepage": "https://pytngdfv1-ai.github.io/el-ocr-ai/",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
