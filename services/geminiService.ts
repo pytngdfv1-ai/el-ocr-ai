@@ -1,166 +1,78 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { DocumentMetadata, QnaItem } from '../types';
+import { GoogleGenerativeAI } from "@google-cloud/generative-ai";
 
-// @ts-ignore
-if (!window.GEMINI_API_KEY || window.GEMINI_API_KEY === "TU_API_KEY_AQUI") {
-  throw new Error("API_KEY de Google Gemini no está configurada. Por favor, edita el archivo 'config.js' y añade tu clave de API.");
+// Definimos la estructura de lo que la IA debe devolver
+interface AnalysisResult {
+  sender: string;
+  recipient: string;
+  date: string;
+  docType: string;
+  summary: string;
+  fullText: string;
 }
 
-// @ts-ignore
-const ai = new GoogleGenAI({ apiKey: window.GEMINI_API_KEY });
-
-const metadataSchema = {
-  type: Type.OBJECT,
-  properties: {
-    fecha: {
-      type: Type.STRING,
-      description: "La fecha del documento en formato AAAA-MM-DD. Si no se encuentra, el valor debe ser null.",
-    },
-    remitente: {
-      type: Type.STRING,
-      description: "La persona o entidad que envía o crea el documento. Si no se encuentra, poner 'Desconocido'.",
-    },
-    destinatario: {
-        type: Type.STRING,
-        description: "La persona o entidad a la que se dirige el documento (destinatario). Si no se encuentra, poner 'N/A'."
-    },
-    tipoDocumento: {
-        type: Type.STRING,
-        description: "El tipo de documento (e.g., 'Factura', 'Contrato', 'Informe Médico', 'Carta'). Si no se puede determinar, poner 'Desconocido'."
-    },
-    resumen: {
-      type: Type.STRING,
-      description: "Un resumen detallado y extendido del contenido del documento, capturando los puntos clave en al menos 3 o 4 frases completas.",
-    },
-    etiquetas: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "Una lista de 3 a 5 palabras clave o etiquetas relevantes que describan el documento (e.g., 'factura', 'contrato', 'médico').",
-    },
-  },
-  required: ["fecha", "remitente", "destinatario", "tipoDocumento", "resumen", "etiquetas"],
-};
-
-const fileToGenerativePart = (base64Data: string, mimeType: string) => {
-  return {
-    inlineData: {
-      data: base64Data,
-      mimeType,
-    },
-  };
-};
-
-export const extractInfoFromDocument = async (
-  base64Data: string,
-  mimeType: string
-): Promise<{ textoOCR: string; metadata: DocumentMetadata }> => {
+/**
+ * Procesa un documento (Imagen o PDF) usando la API de Gemini.
+ * @param file El archivo subido por el usuario.
+ * @param apiKey La clave que el usuario cargó manualmente en la App.
+ */
+export const processDocument = async (file: File, apiKey: string): Promise<AnalysisResult> => {
   try {
-    const imagePart = fileToGenerativePart(base64Data, mimeType);
-
-    // Paso 1: OCR para extraer texto con formato
-    const ocrPrompt = `Extrae todo el texto visible en esta imagen de un documento. Preserva la estructura original del documento, incluyendo saltos de línea, alineación y formato como negritas o cursivas. Usa Markdown para el formato (por ejemplo, **texto** para texto en negrita, *cursiva* para texto en cursiva). Responde únicamente con el texto formateado en Markdown.`;
-    const ocrResult = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: { parts: [imagePart, { text: ocrPrompt }] },
-    });
+    // 1. Inicializamos la IA con la clave recibida desde el componente App
+    const genAI = new GoogleGenerativeAI(apiKey);
     
-    const textoOCR = ocrResult.text.trim();
+    // Usamos gemini-1.5-flash por ser rápido y eficiente para OCR
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    if (!textoOCR) {
-        // Si no hay texto, devolvemos metadata por defecto.
-        return {
-            textoOCR: "No se pudo extraer texto del documento.",
-            metadata: {
-                fecha: new Date().toISOString().split('T')[0],
-                remitente: 'Desconocido',
-                destinatario: 'N/A',
-                tipoDocumento: 'Desconocido',
-                etiquetas: ['sin-texto'],
-                resumen: 'El documento no contenía texto legible.'
-            }
-        };
-    }
-    
-    // Paso 2: Extracción de metadata usando el texto extraído
-    const promptMetadata = `Analiza el siguiente texto de un documento y extrae la información solicitada según el esquema JSON. Texto:\n\n---\n${textoOCR}\n---`;
-    
-    const metadataResult = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: promptMetadata,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: metadataSchema,
-        }
-    });
+    // 2. Convertimos el archivo a un formato que Gemini entienda (Base64)
+    const base64Data = await fileToGenerativePart(file);
 
-    const metadataText = metadataResult.text;
-    const metadata: DocumentMetadata = JSON.parse(metadataText);
+    // 3. El "Prompt": Instrucciones precisas para la IA
+    const prompt = `
+      Actúa como un experto en análisis de documentos y OCR. 
+      Analiza la imagen adjunta y extrae la información en el siguiente formato JSON estricto:
+      {
+        "sender": "Nombre de quien envía o empresa emisora",
+        "recipient": "Nombre de quien recibe el documento",
+        "date": "Fecha del documento (DD/MM/AAAA)",
+        "docType": "Tipo (Factura, Recibo, Mensaje de Error, Nota, etc.)",
+        "summary": "Un resumen breve de 2 líneas sobre el contenido principal",
+        "fullText": "Todo el texto extraído literalmente del documento"
+      }
+      Si no encuentras algún dato, pon "N/A". Responde solo el JSON.
+    `;
 
-    return { textoOCR, metadata };
+    // 4. Ejecutamos la petición
+    const result = await model.generateContent([prompt, base64Data]);
+    const response = await result.response;
+    const text = response.text();
+
+    // 5. Limpiamos y parseamos la respuesta JSON
+    // A veces la IA devuelve el JSON rodeado de ```json ... ```, así que lo limpiamos.
+    const cleanJson = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleanJson) as AnalysisResult;
+
   } catch (error) {
-    console.error("Error al procesar el documento con Gemini:", error);
-    throw new Error("No se pudo analizar el documento. Por favor, inténtalo de nuevo.");
+    console.error("Error detallado en Gemini Service:", error);
+    throw new Error("No se pudo procesar el documento. Revisa la consola para más detalles.");
   }
 };
 
-
-export const answerQuestionAboutDocument = async (
-  ocrText: string,
-  question: string
-): Promise<string> => {
-  try {
-    const prompt = `Basándote EXCLUSIVAMENTE en el siguiente texto de un documento, responde a la pregunta del usuario de forma concisa. Si la respuesta no se encuentra en el texto, indica amablemente que no puedes encontrar la información en el documento.
----
-TEXTO DEL DOCUMENTO:
-${ocrText}
----
-PREGUNTA DEL USUARIO:
-${question}
----
-RESPUESTA:`;
-
-    const result = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
-        contents: prompt,
-    });
-
-    const answer = result.text.trim();
-    return answer;
-  } catch (error) {
-    console.error("Error al responder pregunta con Gemini:", error);
-    throw new Error("La IA no pudo procesar tu pregunta. Por favor, inténtalo de nuevo.");
-  }
-};
-
-export const searchWebForInformation = async (
-  ocrText: string,
-  question: string
-): Promise<{ answer: string; sources: QnaItem['sources'] }> => {
-  try {
-    const prompt = `Basado en el siguiente texto de un documento y una pregunta, busca en la web para proporcionar una respuesta completa y útil. Cita tus fuentes.
----
-TEXTO DEL DOCUMENTO (para contexto):
-${ocrText}
----
-PREGUNTA DEL USUARIO:
-${question}
----
-RESPUESTA BASADA EN BÚSQUEDA WEB:`;
-
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: prompt,
-      config: {
-        tools: [{googleSearch: {}}],
-      },
-    });
-
-    const answer = result.text.trim();
-    const sources = result.candidates?.[0]?.groundingMetadata?.groundingChunks as QnaItem['sources'] || [];
-
-    return { answer, sources };
-  } catch (error) {
-    console.error("Error al buscar en la web con Gemini:", error);
-    throw new Error("La IA no pudo procesar tu búsqueda web. Por favor, inténtalo de nuevo.");
-  }
-};
+/**
+ * Función auxiliar para convertir archivos a Base64
+ */
+async function fileToGenerativePart(file: File) {
+  return new Promise<{ inlineData: { data: string; mimeType: string } }>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = (reader.result as string).split(',')[1];
+      resolve({
+        inlineData: {
+          data: base64String,
+          mimeType: file.type
+        },
+      });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
