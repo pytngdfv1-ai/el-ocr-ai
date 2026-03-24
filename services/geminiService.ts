@@ -1,5 +1,4 @@
-// Cambia esto si el anterior te daba error en la compilación
-import { GoogleGenerativeAI } from "@google/generative-ai"; 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface AnalysisResult {
   sender: string;
@@ -17,33 +16,27 @@ export const processDocument = async (file: File, apiKey: string): Promise<Analy
 
     const base64Data = await fileToGenerativePart(file);
 
-    const prompt = `
-      Actúa como un experto en análisis de documentos y OCR. 
-      Analiza la imagen adjunta y extrae la información en el siguiente formato JSON estricto:
+    const prompt = `Analiza la imagen y extrae la información en JSON estricto:
       {
-        "sender": "Nombre de quien envía o empresa emisora",
-        "recipient": "Nombre de quien recibe el documento",
-        "date": "Fecha del documento (DD/MM/AAAA)",
-        "docType": "Tipo (Factura, Recibo, Mensaje de Error, Nota, etc.)",
-        "summary": "Un resumen breve de 2 líneas sobre el contenido principal",
-        "fullText": "Todo el texto extraído literalmente del documento"
-      }
-      Si no encuentras algún dato, pon "N/A". Responde solo el JSON.
-    `;
+        "sender": "Emisor",
+        "recipient": "Receptor",
+        "date": "DD/MM/AAAA",
+        "docType": "Tipo de documento",
+        "summary": "Resumen breve",
+        "fullText": "Texto completo"
+      }`;
 
     const result = await model.generateContent([prompt, base64Data]);
     const response = await result.response;
     const text = response.text();
 
-    // Limpieza robusta del JSON por si la IA agrega texto extra
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    const cleanJson = jsonMatch ? jsonMatch[0] : text;
-    
+    // Limpieza de posibles etiquetas markdown
+    const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson) as AnalysisResult;
 
   } catch (error) {
     console.error("Error en Gemini Service:", error);
-    throw error;
+    throw new Error("Error al procesar el documento.");
   }
 };
 
@@ -52,9 +45,7 @@ async function fileToGenerativePart(file: File) {
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64String = (reader.result as string).split(',')[1];
-      resolve({
-        inlineData: { data: base64String, mimeType: file.type },
-      });
+      resolve({ inlineData: { data: base64String, mimeType: file.type } });
     };
     reader.onerror = reject;
     reader.readAsDataURL(file);
