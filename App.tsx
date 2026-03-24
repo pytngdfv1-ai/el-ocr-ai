@@ -1,346 +1,221 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Document } from './types';
-import { extractInfoFromDocument } from './services/geminiService';
-import { initDB, getAllDocuments, addDocument, updateDocument, deleteDocument } from './services/dbService';
-import Header from './components/Header';
-import DocumentUploader from './components/DocumentUploader';
-import SearchBar from './components/SearchBar';
-import DocumentList from './components/DocumentList';
-import DocumentDetailModal from './components/DocumentDetailModal';
-import ConfirmationModal from './components/ConfirmationModal';
-import Loader from './components/Loader';
-import { ErrorIcon } from './components/Icons';
+import React, { useState, useEffect } from 'react';
+import { Camera, FileText, Moon, Sun, Lock, Key, Upload, LogOut } from 'lucide-react';
+import { processDocument } from './services/gemini'; // Asegúrate que esta ruta sea correcta en tu proyecto
 
-export type ViewMode = 'grid' | 'list';
-export type Theme = 'light' | 'dark' | 'system';
-
-const matchesAdvancedSearch = (ocrText: string, term: string): boolean => {
-    const lowercasedOcr = ocrText.toLowerCase();
-    const lowercasedTerm = term.toLowerCase();
-
-    // Búsqueda por proximidad: "palabra1 palabra2~5"
-    const proximityMatch = lowercasedTerm.match(/^"(.+?)\s(.+?)~(\d+)"$/);
-    if (proximityMatch) {
-        const [, word1, word2, distanceStr] = proximityMatch;
-        const distance = parseInt(distanceStr, 10);
-        if (word1 && word2 && !isNaN(distance)) {
-            const escapedWord1 = word1.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const escapedWord2 = word2.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            try {
-                const regex = new RegExp(
-                    `\\b${escapedWord1}\\b(?:\\s+\\S+){0,${distance}}\\s+\\b${escapedWord2}\\b|\\b${escapedWord2}\\b(?:\\s+\\S+){0,${distance}}\\s+\\b${escapedWord1}\\b`,
-                    'i'
-                );
-                return regex.test(ocrText);
-            } catch (e) {
-                console.error("Expresión regular de proximidad inválida:", e);
-                return false;
-            }
-        }
-    }
-
-    // Búsqueda de frase exacta: "una frase"
-    if (lowercasedTerm.startsWith('"') && lowercasedTerm.endsWith('"')) {
-        const phrase = lowercasedTerm.substring(1, lowercasedTerm.length - 1);
-        return phrase ? lowercasedOcr.includes(phrase) : false;
-    }
-
-    // Búsqueda con comodín: palab*
-    if (lowercasedTerm.includes('*')) {
-        const regexTerm = lowercasedTerm
-            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-            .replace(/\\\*/g, '.*');
-        try {
-            const regex = new RegExp(regexTerm, 'i');
-            return regex.test(ocrText);
-        } catch (e) {
-            console.error("Expresión regular de búsqueda inválida:", e);
-            return false;
-        }
-    }
-
-    return false; // No se encontró sintaxis avanzada
-};
-
+// Definición de tipos para el estado
+interface AnalysisResult {
+  sender: string;
+  recipient: string;
+  date: string;
+  docType: string;
+  summary: string;
+  fullText: string;
+}
 
 const App: React.FC = () => {
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  
-  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
-  
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const storedTheme = localStorage.getItem('theme');
-      if (storedTheme) {
-        return storedTheme as Theme;
-      }
-    } catch (error) {
-      console.error('No se pudo leer el tema de localStorage', error);
+  // --- ESTADOS DE SEGURIDAD ---
+  const [apiKey, setApiKey] = useState<string>("");
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [inputKey, setInputKey] = useState<string>("");
+  const [showKey, setShowKey] = useState<boolean>(false);
+
+  // --- ESTADOS DE LA APP ---
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+
+  // Efecto para el tema oscuro
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
-    return 'system';
-  });
+  }, [isDarkMode]);
 
-  // Efecto para aplicar el tema
-  useEffect(() => {
-    const root = window.document.documentElement;
-    const isDark =
-      theme === 'dark' ||
-      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-    root.classList.remove(isDark ? 'light' : 'dark');
-    root.classList.add(isDark ? 'dark' : 'light');
-
-    try {
-      localStorage.setItem('theme', theme);
-    } catch (error) {
-      console.error('No se pudo guardar el tema en localStorage', error);
+  // --- LÓGICA DE CARGA DE CLAVE ---
+  
+  // Opción 1: Pegar clave manualmente
+  const handleLogin = () => {
+    if (inputKey.trim().startsWith("AIza")) {
+      setApiKey(inputKey.trim());
+      setIsAuthenticated(true);
+    } else {
+      alert("La clave no parece válida. Debe empezar con 'AIza'.");
     }
-  }, [theme]);
+  };
 
-  // Listener para cambios en el tema del sistema
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => {
-      if (theme === 'system') {
-        const root = window.document.documentElement;
-        if (mediaQuery.matches) {
-          root.classList.add('dark');
-        } else {
-          root.classList.remove('dark');
-        }
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
-
-  // Cargar documentos desde IndexedDB al iniciar
-  useEffect(() => {
-    const loadData = async () => {
-        try {
-            await initDB();
-            const storedDocs = await getAllDocuments();
-            setDocuments(storedDocs);
-        } catch (error) {
-            console.error("Error al cargar documentos desde IndexedDB:", error);
-            setError("No se pudieron cargar los documentos guardados. Es posible que tu navegador no sea compatible o esté en modo privado.");
-            setDocuments([]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    loadData();
-  }, []);
-
-  const handleFileUpload = useCallback(async (file: File) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
+  // Opción 2: Cargar desde archivo .txt
+  const handleFileKey = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onloadend = async () => {
-        const dataUrl = reader.result as string;
-        const base64String = dataUrl.split(',')[1];
-        const { textoOCR, metadata } = await extractInfoFromDocument(base64String, file.type);
-        
-        const newDocument: Document = {
-          id: `doc-${Date.now()}`,
-          nombreArchivo: file.name,
-          imagenUrl: dataUrl,
-          textoOCR,
-          metadata,
-          qnaHistory: [],
-        };
-        
-        await addDocument(newDocument);
-        setDocuments(prevDocs => [newDocument, ...prevDocs]);
-        setIsLoading(false);
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        if (content.trim().startsWith("AIza")) {
+          setApiKey(content.trim());
+          setIsAuthenticated(true);
+        } else {
+          alert("El archivo no contiene una clave de Gemini válida.");
+        }
       };
-      reader.onerror = () => {
-        throw new Error('Error al leer el archivo.');
-      };
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : 'Ocurrió un error desconocido.';
-      setError(errorMessage);
-      setIsLoading(false);
+      reader.readAsText(file);
     }
-  }, []);
-  
-  const handleUpdateDocument = async (updatedDocument: Document) => {
+  };
+
+  // --- LÓGICA DE PROCESAMIENTO ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzing(true);
     try {
-        await updateDocument(updatedDocument);
-        setDocuments(prevDocs =>
-          prevDocs.map(doc => (doc.id === updatedDocument.id ? updatedDocument : doc))
-        );
+      // Pasamos la apiKey que está en memoria al servicio
+      const data = await processDocument(file, apiKey);
+      setResult(data);
     } catch (error) {
-        console.error("Error al actualizar el documento:", error);
-        setError("No se pudo guardar la actualización del documento.");
+      console.error("Error:", error);
+      alert("Error al analizar el documento. Verifica tu clave.");
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
-  useEffect(() => {
-    let currentFiltered = [...documents];
-
-    if (searchTerm) {
-        // Divide el término de búsqueda respetando las frases entre comillas
-        const terms: string[] = searchTerm.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-
-        const positiveTerms: string[] = [];
-        const negativeTerms: string[] = [];
-
-        terms.forEach(term => {
-            if (term.startsWith('-') && term.length > 1) {
-                negativeTerms.push(term.substring(1));
-            } else {
-                positiveTerms.push(term);
-            }
-        });
-
-        currentFiltered = currentFiltered.filter(doc => {
-            const combinedText = [
-                doc.nombreArchivo,
-                doc.metadata.remitente,
-                doc.metadata.destinatario,
-                doc.metadata.tipoDocumento,
-                doc.metadata.resumen,
-                doc.textoOCR,
-            ].join(' ').toLowerCase();
-
-            // 1. Comprobar exclusiones (cualquier término negativo que coincida -> excluir)
-            const isExcluded = negativeTerms.some(term => {
-                const lowercasedTerm = term.toLowerCase();
-                if (lowercasedTerm.startsWith('"') && lowercasedTerm.endsWith('"')) {
-                    const phrase = lowercasedTerm.substring(1, lowercasedTerm.length - 1);
-                    return combinedText.includes(phrase);
-                }
-                return combinedText.includes(lowercasedTerm);
-            });
-
-            if (isExcluded) {
-                return false;
-            }
-
-            // 2. Comprobar inclusiones (todos los términos positivos deben coincidir)
-            if (positiveTerms.length === 0) {
-                return true; // No hay términos positivos para buscar, pero no fue excluido
-            }
-
-            return positiveTerms.every(term => {
-                const isAdvanced = (term.startsWith('"') && term.endsWith('"')) || term.includes('*') || term.match(/^"(.+?)\s(.+?)~(\d+)"$/);
-                
-                if (isAdvanced) {
-                    // Las búsquedas avanzadas solo se aplican al texto OCR
-                    return matchesAdvancedSearch(doc.textoOCR, term);
-                } else {
-                    // El término estándar busca en todas partes
-                    return combinedText.toLowerCase().includes(term.toLowerCase());
-                }
-            });
-        });
-    }
-
-    if (selectedTag) {
-      currentFiltered = currentFiltered.filter(doc => doc.metadata.etiquetas.includes(selectedTag));
-    }
-
-    setFilteredDocuments(currentFiltered);
-}, [documents, searchTerm, selectedTag]);
-
-
-  const allTags = useMemo(() => {
-    const tagsSet = new Set<string>();
-    documents.forEach(doc => {
-      doc.metadata.etiquetas.forEach(tag => tagsSet.add(tag));
-    });
-    return Array.from(tagsSet);
-  }, [documents]);
-
-  const handleDeleteRequest = (documentId: string) => {
-    const docToDelete = documents.find(doc => doc.id === documentId);
-    if (docToDelete) {
-      setDocumentToDelete(docToDelete);
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!documentToDelete) return;
-    try {
-        await deleteDocument(documentToDelete.id);
-        setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== documentToDelete.id));
-        setDocumentToDelete(null);
-    } catch(error) {
-        console.error("Error al eliminar el documento:", error);
-        setError("No se pudo eliminar el documento.");
-    }
-  };
-
-  const handleCancelDelete = () => {
-    setDocumentToDelete(null);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
-      {isLoading && <Loader />}
-      <Header theme={theme} setTheme={setTheme} />
-      <main className="container mx-auto p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <DocumentUploader onFileUpload={handleFileUpload} isLoading={isLoading} />
-
-          {error && (
-            <div className="mt-4 bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-500/30 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg relative flex items-center" role="alert">
-                <ErrorIcon className="w-5 h-5 mr-2"/>
-                <span className="block sm:inline">{error}</span>
+  // --- VISTA 1: PANTALLA DE BLOQUEO (SEGURIDAD) ---
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-slate-800 border border-slate-700 p-8 rounded-2xl shadow-2xl max-w-md w-full">
+          <div className="flex justify-center mb-6">
+            <div className="bg-blue-500/20 p-4 rounded-full">
+              <Lock className="text-blue-500 w-10 h-10" />
             </div>
-          )}
+          </div>
+          <h1 className="text-white text-2xl font-bold text-center mb-2">EL OCR - Acceso</h1>
+          <p className="text-slate-400 text-center text-sm mb-8">La clave API no está guardada en el servidor. Cárgala para continuar.</p>
 
-          {documents.length > 0 && (
-            <div className="mt-8">
-              <SearchBar 
-                searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
-                tags={allTags}
-                selectedTag={selectedTag}
-                setSelectedTag={setSelectedTag}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-              />
-              <DocumentList 
-                documents={filteredDocuments} 
-                onDocumentSelect={setSelectedDocument}
-                onDocumentDelete={handleDeleteRequest}
-                viewMode={viewMode}
-              />
+          <div className="space-y-4">
+            <div>
+              <label className="text-slate-300 text-xs font-semibold uppercase mb-2 block">Pegar API Key</label>
+              <div className="relative">
+                <input 
+                  type={showKey ? "text" : "password"}
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
+                  placeholder="AIzaSy..."
+                />
+                <button 
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-3 text-slate-500"
+                >
+                  <Key size={18} />
+                </button>
+              </div>
             </div>
-          )}
+
+            <button 
+              onClick={handleLogin}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition duration-200 shadow-lg shadow-blue-900/20"
+            >
+              Iniciar Sesión
+            </button>
+
+            <div className="relative flex py-3 items-center">
+              <div className="flex-grow border-t border-slate-700"></div>
+              <span className="flex-shrink mx-4 text-slate-500 text-[10px] uppercase">O carga un archivo</span>
+              <div className="flex-grow border-t border-slate-700"></div>
+            </div>
+
+            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:bg-slate-700/50 transition">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className="text-slate-500 w-6 h-6 mb-2" />
+                <p className="text-xs text-slate-400">Selecciona tu archivo <span className="font-bold">.txt</span></p>
+              </div>
+              <input type="file" className="hidden" accept=".txt" onChange={handleFileKey} />
+            </label>
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  // --- VISTA 2: APLICACIÓN PRINCIPAL ---
+  return (
+    <div className={`min-h-screen ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'}`}>
+      {/* Header */}
+      <nav className="border-b border-slate-700/50 p-4 flex justify-between items-center bg-slate-800/50 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+          <FileText className="text-blue-500 w-8 h-8" />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">EL OCR</h1>
+            <p className="text-[10px] text-slate-400">Sesión Protegida en Memoria</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 hover:bg-slate-700 rounded-full transition">
+            {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+          <button 
+            onClick={() => { setIsAuthenticated(false); setApiKey(""); }} 
+            className="flex items-center gap-2 bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition text-sm font-medium"
+          >
+            <LogOut size={16} /> Salir
+          </button>
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto p-6">
+        {!result ? (
+          <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-700 rounded-3xl bg-slate-800/30">
+            <div className="bg-blue-500/10 p-6 rounded-full mb-4">
+              <Upload className="text-blue-500 w-12 h-12 animate-pulse" />
+            </div>
+            <h2 className="text-2xl font-semibold mb-2">Sube un documento</h2>
+            <p className="text-slate-400 mb-8">La IA analizará el contenido usando tu clave segura.</p>
+            <input 
+              type="file" 
+              id="doc-upload" 
+              className="hidden" 
+              onChange={handleFileUpload}
+              accept="image/*,application/pdf"
+            />
+            <label 
+              htmlFor="doc-upload"
+              className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold cursor-pointer transition transform hover:scale-105 shadow-xl shadow-blue-900/40"
+            >
+              {isAnalyzing ? "Analizando..." : "Seleccionar Archivo"}
+            </label>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Aquí va tu lógica de visualización de resultados (el componente que ya tenías) */}
+            <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                 <Camera size={18} className="text-blue-400"/> Datos Extraídos
+               </h3>
+               <div className="space-y-3">
+                 <p><span className="text-slate-400 text-sm block">Remitente:</span> {result.sender}</p>
+                 <p><span className="text-slate-400 text-sm block">Tipo:</span> {result.docType}</p>
+                 <p><span className="text-slate-400 text-sm block">Resumen:</span> {result.summary}</p>
+               </div>
+               <button 
+                onClick={() => setResult(null)}
+                className="mt-8 text-blue-400 text-sm font-medium hover:underline"
+               >
+                 ← Analizar otro documento
+               </button>
+            </div>
+            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-700 overflow-y-auto max-h-[500px]">
+               <h3 className="text-lg font-bold mb-4">Texto Completo (OCR)</h3>
+               <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">
+                 {result.fullText}
+               </pre>
+            </div>
+          </div>
+        )}
       </main>
-
-      {selectedDocument && (
-        <DocumentDetailModal 
-          document={selectedDocument}
-          onClose={() => setSelectedDocument(null)}
-          onUpdateDocument={handleUpdateDocument}
-        />
-      )}
-
-      {documentToDelete && (
-        <ConfirmationModal
-          onClose={handleCancelDelete}
-          onConfirm={handleConfirmDelete}
-          title="Eliminar Documento"
-          message={`¿Estás seguro de que quieres eliminar "${documentToDelete.nombreArchivo}"? Esta acción no se puede deshacer.`}
-        />
-      )}
     </div>
   );
 };
