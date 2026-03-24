@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const processDocument = async (file: File, apiKey: string) => {
-  if (!apiKey) throw new Error("Falta la clave API");
+  if (!apiKey) throw new Error("API Key requerida");
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -12,18 +12,15 @@ export const processDocument = async (file: File, apiKey: string) => {
     reader.readAsDataURL(file);
   });
 
-  const prompt = "Analiza esta imagen y extrae: emisor, receptor, fecha y resumen en formato JSON.";
+  const prompt = `Analiza este documento y extrae la información en un formato JSON estructurado. 
+                  Busca datos como: fecha, emisor, montos, y un resumen del contenido.`;
 
-  try {
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64Data, mimeType: file.type } }
-    ]);
-    const response = await result.response;
-    const text = response.text().replace(/```json|```/g, "").trim();
-    return JSON.parse(text);
-  } catch (error) {
-    console.error("Error en Gemini:", error);
-    throw error;
-  }
+  const result = await model.generateContent([
+    prompt,
+    { inlineData: { data: base64Data, mimeType: file.type } }
+  ]);
+
+  const response = await result.response;
+  const text = response.text().replace(/```json|```/g, "").trim();
+  return JSON.parse(text);
 };
