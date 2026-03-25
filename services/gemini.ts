@@ -1,70 +1,46 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 /**
- * Procesa documentos/imágenes usando Google Generative AI (Gemini)
- * @param file - El archivo de imagen a procesar
- * @param apiKey - La clave API de Gemini del usuario
- * @returns Objeto JSON con los datos extraídos del documento
+ * Procesa documentos usando Gemini 1.5 Flash
  */
 export async function processDocument(file: File, apiKey: string): Promise<any> {
   try {
-    // Validar que tenemos la clave API
-    if (!apiKey) {
-      throw new Error('Clave API de Gemini no configurada');
-    }
+    if (!apiKey) throw new Error('Clave API no configurada');
 
-    // Convertir el archivo a base64
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < uint8Array.length; i++) {
-      binary += String.fromCharCode(uint8Array[i]);
-    }
-    const base64String = btoa(binary);
+    // Conversión a Base64 más eficiente
+    const base64String = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(file);
+    });
 
-    // Determinar el tipo MIME del archivo
-    const mimeType = file.type || 'image/jpeg';
-
-    // Inicializar cliente de Gemini con la clave API del usuario
     const genAI = new GoogleGenerativeAI(apiKey);
+    // Usamos el modelo flash para mayor velocidad
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    // Enviar la imagen a Gemini para análisis OCR/documental
-    const response = await model.generateContent([
-      {
-        inlineData: {
-          data: base64String,
-          mimeType: mimeType,
-        },
-      },
-      {
-        text: `Analiza este documento de forma detallada y extrae toda la información importante. 
-        Devuelve los resultados en formato JSON estructurado con campos como:
-        - titulo: El título o tipo de documento
-        - contenido: El contenido principal
-        - datos_extraidos: Datos específicos encontrados
-        - fecha: Si la hay
-        - otros_datos: Cualquier otra información relevante
-        
-        Responde SOLO con el JSON, sin explicaciones adicionales.`,
-      },
+    const prompt = `Analiza este documento y extrae la información en formato JSON estructurado. 
+                    Campos requeridos: titulo, contenido, fecha, datos_extraidos. 
+                    Responde ÚNICAMENTE con el objeto JSON puro.`;
+
+    const result = await model.generateContent([
+      { inlineData: { data: base64String, mimeType: file.type } },
+      { text: prompt },
     ]);
 
-    // Procesar la respuesta
-    const textResponse = response.response.text();
+    const response = await result.response;
+    let text = response.text();
     
-    // Intentar parsear como JSON
+    // Limpieza profunda de etiquetas Markdown para evitar errores de parseo
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
     try {
-      return JSON.parse(textResponse);
-    } catch {
-      // Si no es JSON válido, devolver como objeto
-      return {
-        contenido: textResponse,
-        formato: 'texto',
-      };
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.warn("La IA no devolvió un JSON puro, devolviendo texto plano.");
+      return { contenido: text, formato: 'texto' };
     }
   } catch (error: any) {
-    console.error('Error al procesar documento:', error);
-    throw new Error(`Error al procesar: ${error.message}`);
+    console.error('Error en Gemini Service:', error);
+    throw new Error(error.message || 'Error desconocido');
   }
 }
