@@ -7,7 +7,6 @@ export async function processDocument(file: File, apiKey: string): Promise<any> 
   try {
     if (!apiKey) throw new Error('Clave API no configurada');
 
-    // Conversión a Base64 más eficiente
     const base64String = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
@@ -15,32 +14,42 @@ export async function processDocument(file: File, apiKey: string): Promise<any> 
     });
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Usamos el modelo flash para mayor velocidad
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    
+    // CAMBIO CLAVE: Usamos 'gemini-1.5-flash-latest' para asegurar que encuentre el endpoint
+    // Si persiste el 404, prueba con 'gemini-pro-vision' (aunque flash es mejor para OCR)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
+    // Mejoramos el prompt para forzar el formato JSON sin basura
     const prompt = `Analiza este documento y extrae la información en formato JSON estructurado. 
                     Campos requeridos: titulo, contenido, fecha, datos_extraidos. 
-                    Responde ÚNICAMENTE con el objeto JSON puro.`;
+                    Responde exclusivamente con el objeto JSON, sin explicaciones ni markdown.`;
 
     const result = await model.generateContent([
-      { inlineData: { data: base64String, mimeType: file.type } },
+      {
+        inlineData: {
+          data: base64String,
+          mimeType: file.type,
+        },
+      },
       { text: prompt },
     ]);
 
     const response = await result.response;
     let text = response.text();
     
-    // Limpieza profunda de etiquetas Markdown para evitar errores de parseo
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    try {
-      return JSON.parse(text);
-    } catch (parseError) {
-      console.warn("La IA no devolvió un JSON puro, devolviendo texto plano.");
-      return { contenido: text, formato: 'texto' };
+    // Limpieza robusta: busca el primer '{' y el último '}' para ignorar cualquier texto extra
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
     }
+
+    throw new Error("No se pudo encontrar un formato JSON válido en la respuesta");
+
   } catch (error: any) {
-    console.error('Error en Gemini Service:', error);
-    throw new Error(error.message || 'Error desconocido');
+    // Si el error es 404, imprimimos un consejo extra en la consola
+    if (error.message?.includes('404')) {
+      console.error('ERROR 404: El modelo no fue encontrado. Revisa si el nombre es correcto o si tu API Key tiene permisos para este modelo.');
+    }
+    throw error;
   }
 }
