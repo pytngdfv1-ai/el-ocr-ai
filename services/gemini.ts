@@ -1,8 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-/**
- * Procesa documentos usando Gemini 1.5 Flash
- */
 export async function processDocument(file: File, apiKey: string): Promise<any> {
   try {
     if (!apiKey) throw new Error('Clave API no configurada');
@@ -15,41 +12,33 @@ export async function processDocument(file: File, apiKey: string): Promise<any> 
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // CAMBIO CLAVE: Usamos 'gemini-1.5-flash-latest' para asegurar que encuentre el endpoint
-    // Si persiste el 404, prueba con 'gemini-pro-vision' (aunque flash es mejor para OCR)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    // Cambiamos a este nombre específico que suele resolver el error 404 en Web SDK
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash' 
+    });
 
-    // Mejoramos el prompt para forzar el formato JSON sin basura
     const prompt = `Analiza este documento y extrae la información en formato JSON estructurado. 
                     Campos requeridos: titulo, contenido, fecha, datos_extraidos. 
-                    Responde exclusivamente con el objeto JSON, sin explicaciones ni markdown.`;
+                    Responde ÚNICAMENTE el objeto JSON puro, sin bloques de código Markdown.`;
 
     const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64String,
-          mimeType: file.type,
-        },
-      },
+      { inlineData: { data: base64String, mimeType: file.type } },
       { text: prompt },
     ]);
 
     const response = await result.response;
-    let text = response.text();
+    const text = response.text();
     
-    // Limpieza robusta: busca el primer '{' y el último '}' para ignorar cualquier texto extra
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
+    // Buscamos el JSON real por si la IA añade texto extra
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No se detectó un formato JSON válido");
 
-    throw new Error("No se pudo encontrar un formato JSON válido en la respuesta");
+    return JSON.parse(match[0]);
 
   } catch (error: any) {
-    // Si el error es 404, imprimimos un consejo extra en la consola
-    if (error.message?.includes('404')) {
-      console.error('ERROR 404: El modelo no fue encontrado. Revisa si el nombre es correcto o si tu API Key tiene permisos para este modelo.');
-    }
-    throw error;
+    console.error('Error detallado:', error);
+    // Si sigue dando 404, el problema suele ser que la API Key no tiene habilitado 
+    // el "Generative Language API" en el Google Cloud Console.
+    throw new Error(error.message || 'Error en el servicio de IA');
   }
 }
