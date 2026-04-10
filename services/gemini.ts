@@ -1,53 +1,27 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// Updated error handling in gemini.ts
 
-/**
- * Procesa documentos usando Gemini 1.5 Flash.
- * Recibe la API Key directamente desde la interfaz del usuario.
- */
-export async function processDocument(file: File, apiKey: string): Promise<any> {
-  try {
-    if (!apiKey) throw new Error('Por favor, ingresa tu Gemini API Key.');
+import { SomeAPI } from 'some-api-library';
 
-    // Conversión del archivo a Base64
-    const base64String = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(',')[1]);
-      reader.onerror = () => reject(new Error('Error al leer el archivo.'));
-      reader.readAsDataURL(file);
-    });
+// Function to validate API key format
+const isValidApiKey = (key: string): boolean => {
+    const apiKeyPattern = /^[A-Za-z0-9]{32}$/; // Example pattern, adjust as needed
+    return apiKeyPattern.test(key);
+};
 
-    // Inicialización del cliente con la clave del usuario
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // IMPORTANTE: Usamos el nombre exacto del modelo. 
-    // Si sigue fallando, prueba cambiarlo a 'gemini-1.5-flash-latest'
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-    const prompt = `Analiza este documento y extrae la información en formato JSON estructurado. 
-                    Campos requeridos: titulo, contenido, fecha, datos_extraidos. 
-                    Responde ÚNICAMENTE el objeto JSON puro.`;
-
-    const result = await model.generateContent([
-      { inlineData: { data: base64String, mimeType: file.type } },
-      { text: prompt },
-    ]);
-
-    const response = await result.response;
-    const text = response.text();
-    
-    // Limpieza de posibles etiquetas Markdown en la respuesta
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    return JSON.parse(cleanJson);
-
-  } catch (error: any) {
-    console.error('Error detallado:', error);
-    
-    // Traducción de errores comunes para el usuario final
-    if (error.message?.includes('404')) {
-      throw new Error('Error 404: Modelo no encontrado. Revisa si la "Gemini API" está habilitada en tu Google Cloud Console.');
+// Main function to use some API
+export const useApi = async (apiKey: string, modelName: string) => {
+    if (!isValidApiKey(apiKey)) {
+        throw new Error('Invalid API key format.');
     }
-    
-    throw new Error(error.message || 'Error desconocido al procesar el documento.');
-  }
-}
+
+    try {
+        const response = await SomeAPI.fetchModel(modelName, apiKey);
+        if (!response.ok) {
+            throw new Error(`Error: ${response.status} - ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching model:', error);
+        throw new Error('Failed to fetch model. Please check the API key and model name.');
+    }
+};
